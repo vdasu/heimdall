@@ -1,0 +1,909 @@
+# Anthropic Opus 4.6 — translate + verify ALL entry points for each C .o.
+# 102 commands, one per program.  Run from this directory.  Each command
+# uses --all-entries so every entry symbol in the C binary is translated
+# and equivalence-checked.
+#
+# The positional entry_symbol is required by argparse but ignored when
+# --all-entries is set; we pass the first entry as a placeholder.
+
+# ebpf_se__crab_simple
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/crab/crab_simple.c \
+    c_bpf_programs/ebpf-se/crab/crab_simple.o \
+    xdp_prog_simple \
+    --all-entries \
+    targets_map:array macs_map:hash targets_count:array cpu_rr_idx:percpu_array \
+    --provider anthropic --model claude-opus-4-6
+
+# ebpf_se__dae_kern
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/dae/dae_kern.c \
+    c_bpf_programs/ebpf-se/dae/dae_kern.o \
+    kprobe_skb_1 \
+    --all-entries \
+    skb_addresses:hash events:ringbuf \
+    --provider anthropic --model claude-opus-4-6
+
+# ebpf_se__fluvia_xdp
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/fluvia/fluvia_xdp.c \
+    c_bpf_programs/ebpf-se/fluvia/obj/fluvia_xdp.o \
+    xdp_prog \
+    --all-entries \
+    packet_probe_perf:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# ebpf_se__hercules_simple
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/hercules/hercules_simple.c \
+    c_bpf_programs/ebpf-se/hercules/hercules_simple.o \
+    xdp_prog_redirect_userspace \
+    --all-entries \
+    xsks_map:xskmap num_xsks:array local_addr:array \
+    --provider anthropic --model claude-opus-4-6
+
+# ebpf_se__xdp_csum_kern
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/fw/xdp_csum_kern.c \
+    c_bpf_programs/ebpf-se/fw/xdp_csum_kern.o \
+    xdp_prog1 \
+    --all-entries \
+    rxcnt:percpu_array \
+    --provider anthropic --model claude-opus-4-6
+
+# ebpf_se__xdp_fw_kern
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/fw/xdp_fw_kern.c \
+    c_bpf_programs/ebpf-se/fw/xdp_fw_kern.o \
+    xdp_fw_prog \
+    --all-entries \
+    tx_port:devmap flow_ctx_table:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ebpf_se__xdp_map_access_kern
+python3 run_translation.py \
+    c_bpf_programs/ebpf-se/fw/xdp_map_access_kern.c \
+    c_bpf_programs/ebpf-se/fw/xdp_map_access_kern.o \
+    xdp_prog1 \
+    --all-entries \
+    rxcnt:percpu_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__accept-latency
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/accept-latency.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/accept-latency.bpf.o \
+    kprobe__inet_csk_reqsk_queue_hash_add \
+    --all-entries \
+    start:hash accept_latency_seconds:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__bashreadline
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/bashreadline.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/bashreadline.bpf.o \
+    printret \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__biolatency
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/biolatency.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/biolatency.bpf.o \
+    block_rq_insert \
+    --all-entries \
+    start:hash bio_latency_seconds:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__bpf-jit
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/bpf-jit.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/bpf-jit.bpf.o \
+    trace_change \
+    --all-entries \
+    bpf_jit_pages_currently_allocated:array \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__cachestat
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/cachestat.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/cachestat.bpf.o \
+    add_to_page_cache_lru \
+    --all-entries \
+    page_cache_ops_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__cgroup
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/cgroup.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/cgroup.bpf.o \
+    sched_migrate_task \
+    --all-entries \
+    cgroup_sched_migrations_total:lru_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__execsnoop
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/execsnoop.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/execsnoop.bpf.o \
+    tracepoint__syscalls__sys_enter_execve \
+    --all-entries \
+    events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__exitsnoop
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/exitsnoop.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/exitsnoop.bpf.o \
+    handle_exit \
+    --all-entries \
+    rb:ringbuf \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__kfree_skb
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/kfree_skb.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/kfree_skb.bpf.o \
+    kfree_skb \
+    --all-entries \
+    kfree_skb_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__kprobe-link
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/kprobe-link.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/kprobe-link.bpf.o \
+    do_unlinkat \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__llcstat
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/llcstat.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/llcstat.bpf.o \
+    on_cache_miss \
+    --all-entries \
+    llc_references_total:hash llc_misses_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__minimal
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/minimal.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/minimal.bpf.o \
+    handle_tp \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__oomkill
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/oomkill.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/oomkill.bpf.o \
+    kprobe__oom_kill_process \
+    --all-entries \
+    oom_kills_total:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__opensnoop
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/opensnoop.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/opensnoop.bpf.o \
+    tracepoint__syscalls__sys_enter_openat \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__percpu-softirq
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/percpu-softirq.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/percpu-softirq.bpf.o \
+    softirq_entry \
+    --all-entries \
+    softirqs_total:percpu_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__raw-tracepoints
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/raw-tracepoints.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/raw-tracepoints.bpf.o \
+    do_count \
+    --all-entries \
+    raw_timer_starts_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__shrinklat
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/shrinklat.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/shrinklat.bpf.o \
+    shrink_node_enter \
+    --all-entries \
+    start:hash shrink_node_latency_seconds:array \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__sigsnoop
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/sigsnoop.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/sigsnoop.bpf.o \
+    kill_entry \
+    --all-entries \
+    values:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__syscalls
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/syscalls.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/syscalls.bpf.o \
+    sys_enter \
+    --all-entries \
+    syscalls_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__tcp-syn-backlog
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/tcp-syn-backlog.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/tcp-syn-backlog.bpf.o \
+    kprobe__tcp_v4_syn_recv_sock \
+    --all-entries \
+    tcp_syn_backlog:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__tcp-window-clamps
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/tcp-window-clamps.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/tcp-window-clamps.bpf.o \
+    tcp_try_rmem_schedule \
+    --all-entries \
+    tcp_window_clamps_total:array tcp_rmem_schedule_enters:lru_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__timers
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/timers.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/timers.bpf.o \
+    timer_start \
+    --all-entries \
+    timer_starts_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__udp-drops
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/udp-drops.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/udp-drops.bpf.o \
+    udp_fail_queue_rcv_skb \
+    --all-entries \
+    udp_fail_queue_rcv_skbs_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__uprobe
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/uprobe.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/uprobe.bpf.o \
+    do_count \
+    --all-entries \
+    libc_malloc_calls_total:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# ken_libbpf__xdp
+python3 run_translation.py \
+    c_bpf_programs/KEN/dataset/libbpf/xdp.bpf.c \
+    c_bpf_programs/KEN/dataset/libbpf/xdp.bpf.o \
+    trace_lo \
+    --all-entries \
+    xdp_incoming_packets_total:lru_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__bootstrap
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/bootstrap.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/bootstrap.bpf.o \
+    handle_exec \
+    --all-entries \
+    exec_start:hash rb:ringbuf \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__bootstrap_legacy
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/bootstrap_legacy.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/bootstrap_legacy.bpf.o \
+    handle_exec \
+    --all-entries \
+    exec_start:hash perf_buffer:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__fentry
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/fentry.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/fentry.bpf.o \
+    do_unlinkat \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__kprobe
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/kprobe.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/kprobe.bpf.o \
+    do_unlinkat \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__ksyscall
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/ksyscall.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/ksyscall.bpf.o \
+    tgkill_entry \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__lsm
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/lsm.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/lsm.bpf.o \
+    lsm_bpf \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__minimal
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/minimal.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/minimal.bpf.o \
+    handle_tp \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__minimal_legacy
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/minimal_legacy.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/minimal_legacy.bpf.o \
+    handle_tp \
+    --all-entries \
+    my_pid_map:array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__minimal_ns
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/minimal_ns.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/minimal_ns.bpf.o \
+    handle_tp \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__profile
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/profile.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/profile.bpf.o \
+    profile \
+    --all-entries \
+    events:ringbuf \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__sockfilter
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/sockfilter.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/sockfilter.bpf.o \
+    socket_handler \
+    --all-entries \
+    rb:ringbuf \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__tc
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/tc.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/tc.bpf.o \
+    tc_ingress \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_bootstrap__uprobe
+python3 run_translation.py \
+    c_bpf_programs/libbpf_bootstrap_standalone/uprobe.bpf.c \
+    c_bpf_programs/libbpf_bootstrap_standalone/uprobe.bpf.o \
+    uprobe_add \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__bashreadline
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/bashreadline.bpf.c \
+    c_bpf_programs/libbpf-tools/bashreadline.o \
+    printret \
+    --all-entries \
+    events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__biopattern
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/biopattern.bpf.c \
+    c_bpf_programs/libbpf-tools/biopattern.o \
+    handle__block_rq_complete \
+    --all-entries \
+    counters:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__biostacks
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/biostacks.bpf.c \
+    c_bpf_programs/libbpf-tools/biostacks.o \
+    blk_account_io_merge_bio \
+    --all-entries \
+    rqinfos:hash hists:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__biotop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/biotop.bpf.c \
+    c_bpf_programs/libbpf-tools/biotop.o \
+    blk_mq_start_request \
+    --all-entries \
+    start:hash whobyreq:hash counts:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__bitesize
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/bitesize.bpf.c \
+    c_bpf_programs/libbpf-tools/bitesize.o \
+    block_rq_issue \
+    --all-entries \
+    hists:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__cachestat
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/cachestat.bpf.c \
+    c_bpf_programs/libbpf-tools/cachestat.o \
+    fentry_add_to_page_cache_lru \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__drsnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/drsnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/drsnoop.o \
+    direct_reclaim_begin_btf \
+    --all-entries \
+    start:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__filelife
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/filelife.bpf.c \
+    c_bpf_programs/libbpf-tools/filelife.o \
+    vfs_create \
+    --all-entries \
+    heap:percpu_array events:ringbuf start:hash currevent:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__filetop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/filetop.bpf.c \
+    c_bpf_programs/libbpf-tools/filetop.o \
+    vfs_read_entry \
+    --all-entries \
+    entries:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__fsdist
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/fsdist.bpf.c \
+    c_bpf_programs/libbpf-tools/fsdist.o \
+    file_read_entry \
+    --all-entries \
+    starts:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__fsslower
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/fsslower.bpf.c \
+    c_bpf_programs/libbpf-tools/fsslower.o \
+    file_read_entry \
+    --all-entries \
+    starts:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__futexctn
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/futexctn.bpf.c \
+    c_bpf_programs/libbpf-tools/futexctn.o \
+    futex_enter \
+    --all-entries \
+    start:hash stackmap:stack_trace hists:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__gethostlatency
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/gethostlatency.bpf.c \
+    c_bpf_programs/libbpf-tools/gethostlatency.o \
+    handle_entry \
+    --all-entries \
+    starts:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__javagc
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/javagc.bpf.c \
+    c_bpf_programs/libbpf-tools/javagc.o \
+    handle_gc_start \
+    --all-entries \
+    __bpf_usdt_specs:array __bpf_usdt_ip_to_spec_id:hash data_map:hash perf_map:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__klockstat
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/klockstat.bpf.c \
+    c_bpf_programs/libbpf-tools/klockstat.o \
+    rtnetlink_rcv_msg \
+    --all-entries \
+    stack_map:stack_trace lockholder_map:hash stat_map:hash locks:hash task_states:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__ksnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/ksnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/ksnoop.o \
+    kprobe_entry \
+    --all-entries \
+    ksnoop_func_stack:hash ksnoop_func_map:percpu_hash ksnoop_perf_map:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__llcstat
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/llcstat.bpf.c \
+    c_bpf_programs/libbpf-tools/llcstat.o \
+    on_cache_miss \
+    --all-entries \
+    infos:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__mdflush
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/mdflush.bpf.c \
+    c_bpf_programs/libbpf-tools/mdflush.o \
+    md_flush_request \
+    --all-entries \
+    events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__memleak
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/memleak.bpf.c \
+    c_bpf_programs/libbpf-tools/memleak.o \
+    malloc_enter \
+    --all-entries \
+    sizes:hash allocs:hash combined_allocs:hash memptrs:hash stack_traces:stack_trace \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__mountsnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/mountsnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/mountsnoop.o \
+    mount_entry \
+    --all-entries \
+    heap:percpu_array events:ringbuf args:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__numamove
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/numamove.bpf.c \
+    c_bpf_programs/libbpf-tools/numamove.o \
+    fentry_migrate_misplaced_page \
+    --all-entries \
+    start:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__offcputime
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/offcputime.bpf.c \
+    c_bpf_programs/libbpf-tools/offcputime.o \
+    sched_switch \
+    --all-entries \
+    start:hash stackmap:stack_trace info:hash tgids:hash pids:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__oomkill
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/oomkill.bpf.c \
+    c_bpf_programs/libbpf-tools/oomkill.o \
+    oom_kill_process \
+    --all-entries \
+    heap:percpu_array events:ringbuf \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__opensnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/opensnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/opensnoop.o \
+    tracepoint__syscalls__sys_enter_open \
+    --all-entries \
+    heap:percpu_array events:ringbuf start:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__profile
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/profile.bpf.c \
+    c_bpf_programs/libbpf-tools/profile.o \
+    do_perf_event \
+    --all-entries \
+    stackmap:stack_trace counts:hash pids:hash tids:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__readahead
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/readahead.bpf.c \
+    c_bpf_programs/libbpf-tools/readahead.o \
+    do_page_cache_ra \
+    --all-entries \
+    in_readahead:hash birth:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__runqlen
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/runqlen.bpf.c \
+    c_bpf_programs/libbpf-tools/runqlen.o \
+    do_sample \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__runqslower
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/runqslower.bpf.c \
+    c_bpf_programs/libbpf-tools/runqslower.o \
+    sched_wakeup \
+    --all-entries \
+    start:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__sigsnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/sigsnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/sigsnoop.o \
+    kill_entry \
+    --all-entries \
+    values:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__slabratetop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/slabratetop.bpf.c \
+    c_bpf_programs/libbpf-tools/slabratetop.o \
+    kmem_cache_alloc \
+    --all-entries \
+    slab_entries:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__softirqs
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/softirqs.bpf.c \
+    c_bpf_programs/libbpf-tools/softirqs.o \
+    softirq_entry_btf \
+    --all-entries \
+    start:percpu_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__solisten
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/solisten.bpf.c \
+    c_bpf_programs/libbpf-tools/solisten.o \
+    inet_listen_entry \
+    --all-entries \
+    values:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__statsnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/statsnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/statsnoop.o \
+    handle_statfs_entry \
+    --all-entries \
+    values:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__syncsnoop
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/syncsnoop.bpf.c \
+    c_bpf_programs/libbpf-tools/syncsnoop.o \
+    tracepoint__syscalls__sys_enter_sync \
+    --all-entries \
+    events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcpconnect
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcpconnect.bpf.c \
+    c_bpf_programs/libbpf-tools/tcpconnect.o \
+    tcp_v4_connect \
+    --all-entries \
+    sockets:hash ipv4_count:hash ipv6_count:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcpconnlat
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcpconnlat.bpf.c \
+    c_bpf_programs/libbpf-tools/tcpconnlat.o \
+    tcp_v4_connect \
+    --all-entries \
+    start:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcpktlat
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcpktlat.bpf.c \
+    c_bpf_programs/libbpf-tools/tcpktlat.o \
+    tcp_probe_btf \
+    --all-entries \
+    heap:percpu_array events:ringbuf start:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcplife
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcplife.bpf.c \
+    c_bpf_programs/libbpf-tools/tcplife.o \
+    inet_sock_set_state \
+    --all-entries \
+    birth:hash idents:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcprtt
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcprtt.bpf.c \
+    c_bpf_programs/libbpf-tools/tcprtt.o \
+    tcp_rcv \
+    --all-entries \
+    hists:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcpstates
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcpstates.bpf.c \
+    c_bpf_programs/libbpf-tools/tcpstates.o \
+    handle_set_state \
+    --all-entries \
+    sports:hash dports:hash timestamps:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcpsynbl
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcpsynbl.bpf.c \
+    c_bpf_programs/libbpf-tools/tcpsynbl.o \
+    tcp_v4_syn_recv_kprobe \
+    --all-entries \
+    hists:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__tcptracer
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/tcptracer.bpf.c \
+    c_bpf_programs/libbpf-tools/tcptracer.o \
+    tcp_v4_connect \
+    --all-entries \
+    tuplepid:hash sockets:hash events:perf_event_array \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__vfsstat
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/vfsstat.bpf.c \
+    c_bpf_programs/libbpf-tools/vfsstat.o \
+    kprobe_vfs_read \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# libbpf_tools__wakeuptime
+python3 run_translation.py \
+    c_bpf_programs/libbpf-tools/wakeuptime.bpf.c \
+    c_bpf_programs/libbpf-tools/wakeuptime.o \
+    sched_switch \
+    --all-entries \
+    counts:hash start:hash stackmap:stack_trace \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_fifo
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_fifo.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_fifo.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    inode_watchlist:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_get_scan
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_get_scan.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_get_scan.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    scan_pids:hash folio_metadata_map:hash sampling_list_map:array stats:hash inode_watchlist:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_mru
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_mru.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_mru.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    inode_watchlist:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_s3fifo
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_s3fifo.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_s3fifo.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    folio_metadata_map:hash ghost_map:lru_hash inode_watchlist:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_sampling
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_sampling.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_sampling.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    folio_metadata_map:hash stats:hash inode_watchlist:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# suricata__bypass_filter
+python3 run_translation.py \
+    c_bpf_programs/suricata/ebpf/bypass_filter.c \
+    c_bpf_programs/suricata/ebpf/bypass_filter.o \
+    hashfilter \
+    --all-entries \
+    flow_table_v4:percpu_hash flow_table_v6:percpu_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# suricata__filter
+python3 run_translation.py \
+    c_bpf_programs/suricata/ebpf/filter.c \
+    c_bpf_programs/suricata/ebpf/filter.o \
+    hashfilter \
+    --all-entries \
+    ipv4_drop:percpu_hash \
+    --provider anthropic --model claude-opus-4-6
+
+# suricata__vlan_filter
+python3 run_translation.py \
+    c_bpf_programs/suricata/ebpf/vlan_filter.c \
+    c_bpf_programs/suricata/ebpf/vlan_filter.o \
+    hashfilter \
+    --all-entries \
+    --provider anthropic --model claude-opus-4-6
+
+# suricata__xdp_filter
+python3 run_translation.py \
+    c_bpf_programs/suricata/ebpf/xdp_filter.c \
+    c_bpf_programs/suricata/ebpf/xdp_filter.o \
+    xdp_hashfilter \
+    --all-entries \
+    cpu_map:cpumap cpus_available:array cpus_count:array flow_table_v4:percpu_hash flow_table_v6:percpu_hash tx_peer:devmap tx_peer_int:array \
+    --provider anthropic --model claude-opus-4-6
+
+# research__bmc_kern
+python3 run_translation.py \
+    c_bpf_programs/research_papers/bmc-cache/bmc/bmc_kern.c \
+    c_bpf_programs/research_papers/bmc-cache/bmc/bmc_kern.o \
+    bmc_rx_filter_main \
+    --all-entries \
+    map_kcache:array map_keys:percpu_array map_parsing_context:percpu_array map_stats:percpu_array map_progs_xdp:prog_array map_progs_tc:prog_array \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_lhd
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_lhd.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_lhd.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    folio_metadata_map:hash events:ringbuf inode_watchlist:hash \
+    --provider anthropic --model claude-opus-4-6
+
+# research__cache_ext_mglru
+python3 run_translation.py \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_mglru.bpf.c \
+    c_bpf_programs/research_papers/cache_ext/policies/cache_ext_mglru.bpf.o \
+    vfs_open_exit \
+    --all-entries \
+    folio_metadata_map:hash ghost_map:lru_hash mglru_global_metadata_map:array mglru_percpu_array:percpu_array \
+    --provider anthropic --model claude-opus-4-6
+
+# suricata__xdp_lb
+python3 run_translation.py \
+    c_bpf_programs/suricata/ebpf/xdp_lb.c \
+    c_bpf_programs/suricata/ebpf/xdp_lb.o \
+    xdp_loadfilter \
+    --all-entries \
+    cpu_map:cpumap cpus_available:array cpus_count:array \
+    --provider anthropic --model claude-opus-4-6
