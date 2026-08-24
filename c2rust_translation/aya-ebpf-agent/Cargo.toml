@@ -1,0 +1,16 @@
+[package]
+name = "aya-ebpf-translated"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya-ebpf = { git = "https://github.com/aya-rs/aya", default-features = false }
+aya-log-ebpf = { git = "https://github.com/aya-rs/aya", default-features = false }
+
+[[bin]]
+name = "aya-ebpf-translated"
+path = "src/main.rs"
+
+[profile.release]
+debug = 2
+codegen-units = 1
