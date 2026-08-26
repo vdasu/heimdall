@@ -154,3 +154,19 @@ failure.
 ## License
 
 See [`LICENSE`](LICENSE).
+
+## Reference
+
+Please cite the paper if you use our codebase:
+
+```
+@misc{dasu2026heimdallformallyverifiedautomated,
+      title={Heimdall: Formally Verified Automated Migration of Legacy eBPF Programs to Rust}, 
+      author={Vishnu Asutosh Dasu and Monika Santra and Md Rafi Ur Rashid and Ashish Kumar and Saeid Tizpaz-Niari and Gang Tan},
+      year={2026},
+      eprint={2605.25411},
+      archivePrefix={arXiv},
+      primaryClass={cs.CR},
+      url={https://arxiv.org/abs/2605.25411}, 
+}
+```
