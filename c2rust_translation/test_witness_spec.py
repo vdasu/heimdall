@@ -1,0 +1,332 @@
+"""
+Stage-1 tests for the --witness input (witness_spec.py).
+
+Standalone, no pytest dependency. Run:
+
+    python3 test_witness_spec.py
+
+Exercises: JSON + YAML loading, structural parsing, the expression
+mini-language, assumption -> claripy constraint lowering (semantics checked
+with a solver), map-spec derivation, and error handling. Does not run angr /
+the full symbolic pipeline.
+"""
+
+import json
+import os
+import sys
+import tempfile
+import traceback
+
+import claripy
+
+from witness_spec import (
+    ExprContext,
+    WitnessError,
+    _bits_of_type,
+    build_assumption_constraints,
+    eval_expr,
+    load_witness,
+)
+from generate_formula import build_ctx_shared_vars
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXAMPLE = os.path.join(HERE, "witnesses", "reduce_queue_key_width.json")
+
+_passed = 0
+_failed = 0
+
+
+def check(name, fn):
+    global _passed, _failed
+    try:
+        fn()
+    except Exception:
+        _failed += 1
+        print(f"[FAIL] {name}")
+        traceback.print_exc()
+    else:
+        _passed += 1
+        print(f"[ok]   {name}")
+
+
+def expect_error(name, fn, needle=None):
+    global _passed, _failed
+    try:
+        fn()
+    except WitnessError as exc:
+        if needle and needle not in str(exc):
+            _failed += 1
+            print(f"[FAIL] {name}: message {str(exc)!r} lacks {needle!r}")
+        else:
+            _passed += 1
+            print(f"[ok]   {name}  ->  {exc}")
+    except Exception:
+        _failed += 1
+        print(f"[FAIL] {name}: wrong exception type")
+        traceback.print_exc()
+    else:
+        _failed += 1
+        print(f"[FAIL] {name}: expected WitnessError, none raised")
+
+
+def xdp_ctx():
+    sv, _ = build_ctx_shared_vars("xdp", 24)
+    return sv
+
+
+# --------------------------------------------------------------------------- #
+# structural parsing
+# --------------------------------------------------------------------------- #
+def t_load_example():
+    w = load_witness(EXAMPLE)
+    assert w.version == "0.1"
+    assert w.name == "reduce_queue_key_width"
+    assert [b.name for b in w.bindings] == ["context", "queue_id", "queue_packets"]
+    assert {b.name: b.is_map for b in w.bindings} == {
+        "context": False,
+        "queue_id": False,
+        "queue_packets": True,
+    }
+    assert w.derived_map_specs() == ["queue_packets:hash"]
+    assert [a.id for a in w.assumptions] == ["A1"]
+    assert w.assumptions[0].provenance_kind == "developer_approved"
+    assert [o.name for o in w.observations] == ["return_value", "queue_packets"]
+
+
+def t_load_yaml_and_unwrap():
+    doc = """
+witness:
+  version: "0.1"
+  name: y
+  bindings:
+    - name: m
+      original:  {object: m, type: "map<u32, u64>"}
+      optimized: {object: m, type: "map<u16, u64>"}
+      relation:
+        map_correspondence:
+          original_key: k
+          optimized_key: {truncate: {value: k, width: 16}}
+          value_relation: {equal: true}
+  assumptions: []
+  observations: []
+"""
+    fd, path = tempfile.mkstemp(suffix=".yaml")
+    os.write(fd, doc.encode())
+    os.close(fd)
+    try:
+        w = load_witness(path)
+    finally:
+        os.unlink(path)
+    assert w.name == "y"
+    assert w.derived_map_specs() == ["m:hash"]
+
+
+def t_bare_object_no_wrapper():
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.write(fd, json.dumps({"version": "0.1", "name": "bare"}).encode())
+    os.close(fd)
+    try:
+        w = load_witness(path)
+    finally:
+        os.unlink(path)
+    assert w.name == "bare"
+    assert w.bindings == [] and w.assumptions == [] and w.observations == []
+
+
+# --------------------------------------------------------------------------- #
+# expression mini-language
+# --------------------------------------------------------------------------- #
+def t_literal_widths():
+    ectx = ExprContext(xdp_ctx())
+    v = eval_expr({"value": 65535, "type": "u32"}, ectx)
+    assert v.size() == 32 and (v == 0xFFFF).is_true()
+    v2 = eval_expr({"value": 0x1FF, "type": "u8"}, ectx)  # masked to width
+    assert v2.size() == 8 and (v2 == 0xFF).is_true()
+
+
+def t_path_resolution():
+    sv = xdp_ctx()
+    ectx = ExprContext(sv)
+    a = ectx.resolve_path("original.ctx.rx_queue_index")
+    b = ectx.resolve_path("optimized.ctx.rx_queue_index")
+    c = ectx.resolve_path("rx_queue_index")  # bare, side/ctx optional
+    assert a is sv["ctx_fields"]["rx_queue_index"][2]
+    assert a is b is c  # stage 1: original/optimized ctx fields are the same sym
+
+
+def t_truncate_concrete():
+    ectx = ExprContext(xdp_ctx())
+    e = {"truncate": {"value": {"value": 0x1234ABCD, "type": "u32"}, "width": 16}}
+    v = eval_expr(e, ectx)
+    assert v.size() == 16 and (v == 0xABCD).is_true()
+
+
+def t_zero_and_sign_extend():
+    ectx = ExprContext(xdp_ctx())
+    z = eval_expr({"zero_extend": {"value": {"value": 0xFF, "type": "u8"}, "width": 32}}, ectx)
+    assert z.size() == 32 and (z == 0xFF).is_true()
+    s = eval_expr({"sign_extend": {"value": {"value": 0xFF, "type": "u8"}, "width": 32}}, ectx)
+    assert s.size() == 32 and (s == 0xFFFFFFFF).is_true()
+
+
+def t_arith_coercion():
+    ectx = ExprContext(xdp_ctx())
+    # u8 + u32 -> widths reconciled, no exception, 32-bit result
+    e = {"add": {"left": {"value": 1, "type": "u8"}, "right": {"value": 2, "type": "u32"}}}
+    v = eval_expr(e, ectx)
+    assert v.size() == 32 and (v == 3).is_true()
+
+
+def t_comparisons_and_logic():
+    ectx = ExprContext(xdp_ctx())
+    e = {
+        "all_of": [
+            {"unsigned_le": {"left": {"value": 1, "type": "u32"}, "right": {"value": 2, "type": "u32"}}},
+            {"any_of": [
+                {"eq": {"left": {"value": 5, "type": "u32"}, "right": {"value": 6, "type": "u32"}}},
+                {"ne": {"left": {"value": 5, "type": "u32"}, "right": {"value": 6, "type": "u32"}}},
+            ]},
+        ]
+    }
+    c = eval_expr(e, ectx)
+    assert isinstance(c, claripy.ast.Bool) and c.is_true()
+
+
+# --------------------------------------------------------------------------- #
+# assumption lowering (semantics via solver)
+# --------------------------------------------------------------------------- #
+def t_assumption_constraint_semantics():
+    sv = xdp_ctx()
+    w = load_witness(EXAMPLE)
+    cons = build_assumption_constraints(w, sv)
+    assert len(cons) == 1
+    c = cons[0]
+    assert isinstance(c, claripy.ast.Bool)
+
+    rqi = sv["ctx_fields"]["rx_queue_index"][2]
+    assert any("input_ctx_rx_queue_index" in v for v in c.variables)
+
+    s = claripy.Solver()
+    s.add(c)
+    s.add(rqi == 65535)
+    assert s.satisfiable(), "rx_queue_index == 65535 must satisfy A1"
+
+    s2 = claripy.Solver()
+    s2.add(c)
+    s2.add(rqi == 65536)
+    assert not s2.satisfiable(), "rx_queue_index == 65536 must violate A1"
+
+
+def t_no_assumptions_is_empty():
+    sv = xdp_ctx()
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.write(fd, json.dumps({"witness": {"version": "0.1", "name": "n"}}).encode())
+    os.close(fd)
+    try:
+        w = load_witness(path)
+    finally:
+        os.unlink(path)
+    assert build_assumption_constraints(w, sv) == []
+
+
+# --------------------------------------------------------------------------- #
+# type helper
+# --------------------------------------------------------------------------- #
+def t_bits_of_type():
+    assert _bits_of_type("u8") == 8
+    assert _bits_of_type("u16") == 16
+    assert _bits_of_type("u32") == 32
+    assert _bits_of_type("u64") == 64
+    assert _bits_of_type("bool") == 1
+    assert _bits_of_type("struct xdp_md *") == 64
+    assert _bits_of_type("s24") == 24
+
+
+# --------------------------------------------------------------------------- #
+# error handling
+# --------------------------------------------------------------------------- #
+def t_err_unknown_field():
+    ectx = ExprContext(xdp_ctx())
+    expect_error(
+        "unknown ctx field",
+        lambda: eval_expr("original.ctx.nonesuch", ectx),
+        needle="nonesuch",
+    )
+
+
+def t_err_non_boolean_assumption():
+    sv = xdp_ctx()
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.write(fd, json.dumps({"witness": {"version": "0.1", "name": "nb", "assumptions": [
+        {"id": "A1", "provenance": {"kind": "x"},
+         "expression": {"truncate": {"value": "original.ctx.rx_queue_index", "width": 16}}},
+    ]}}).encode())
+    os.close(fd)
+    try:
+        w = load_witness(path)
+    finally:
+        os.unlink(path)
+    expect_error(
+        "non-boolean assumption",
+        lambda: build_assumption_constraints(w, sv),
+        needle="boolean",
+    )
+
+
+def t_err_malformed_json():
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.write(fd, b"{ not json")
+    os.close(fd)
+    try:
+        expect_error("malformed JSON", lambda: load_witness(path), needle="not valid JSON")
+    finally:
+        os.unlink(path)
+
+
+def t_err_truncate_too_wide():
+    ectx = ExprContext(xdp_ctx())
+    expect_error(
+        "truncate width > value width",
+        lambda: eval_expr(
+            {"truncate": {"value": {"value": 1, "type": "u8"}, "width": 16}}, ectx
+        ),
+        needle="truncate width",
+    )
+
+
+def t_err_bad_type_name():
+    expect_error("bad type name", lambda: _bits_of_type("wat"), needle="wat")
+
+
+# --------------------------------------------------------------------------- #
+def main():
+    tests = [
+        ("load example JSON", t_load_example),
+        ("load YAML + unwrap witness:", t_load_yaml_and_unwrap),
+        ("bare object (no wrapper)", t_bare_object_no_wrapper),
+        ("literal widths + masking", t_literal_widths),
+        ("path resolution (side/ctx optional)", t_path_resolution),
+        ("truncate (concrete)", t_truncate_concrete),
+        ("zero_extend / sign_extend", t_zero_and_sign_extend),
+        ("arith width coercion", t_arith_coercion),
+        ("comparisons + all_of/any_of", t_comparisons_and_logic),
+        ("assumption constraint semantics", t_assumption_constraint_semantics),
+        ("no assumptions -> []", t_no_assumptions_is_empty),
+        ("_bits_of_type table", t_bits_of_type),
+    ]
+    for name, fn in tests:
+        check(name, fn)
+
+    # error-path tests manage their own pass/fail accounting
+    t_err_unknown_field()
+    t_err_non_boolean_assumption()
+    t_err_malformed_json()
+    t_err_truncate_too_wide()
+    t_err_bad_type_name()
+
+    print(f"\n{_passed} passed, {_failed} failed")
+    return 1 if _failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,21 @@
+{
+  "witness": {
+    "version": "0.1",
+    "name": "minimal_smoke",
+    "bindings": [],
+    "assumptions": [
+      {
+        "id": "A1",
+        "expression": {
+          "unsigned_le": {
+            "left": "original.ctx.common_pid",
+            "right": { "value": 4294967295, "type": "u32" }
+          }
+        },
+        "provenance": { "kind": "always_true" },
+        "description": "Trivially true bound on common_pid; smoke test that a witness assumption flows into the solver without changing the verdict."
+      }
+    ],
+    "observations": []
+  }
+}

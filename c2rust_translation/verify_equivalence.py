@@ -823,16 +823,26 @@ class VerificationContext:
     program_type: str = "default"
     c_filepath: str = ""
 
-def prepare_verification(c_filepath, map_specs, helper_fail_mode="off", helper_fail_helpers=None, pkt_size=None, symbolic_uninit=False):
+def prepare_verification(c_filepath, map_specs, helper_fail_mode="off", helper_fail_helpers=None, pkt_size=None, symbolic_uninit=False, witness=None):
     """Prepare shared verification context and generate the C formula (once).
 
     Args:
         c_filepath: path to C eBPF object file
         map_specs: list of "name:type" strings
+        witness: optional WitnessSpec (see witness_spec.py). Stage 1 uses it to
+            derive map specs from `map_correspondence` bindings (only when
+            `map_specs` is empty) and to append assumption constraints to the
+            shared ctx_constraints list.
 
     Returns:
         VerificationContext, or VerificationResult on error
     """
+    if witness is not None and not map_specs:
+        derived = witness.derived_map_specs()
+        if derived:
+            print(f"[*] witness: using map specs derived from bindings: {derived}")
+            map_specs = derived
+
     map_symbol_names, map_type_names = parse_map_specs(map_specs)
     helper_fail_mode = (helper_fail_mode or "off").strip().lower()
     if helper_fail_mode not in VALID_HELPER_FAIL_MODES:
@@ -879,6 +889,13 @@ def prepare_verification(c_filepath, map_specs, helper_fail_mode="off", helper_f
             map_type_names.append(meta.map_type_name)
 
     shared_vars, ctx_constraints = build_ctx_shared_vars(program_type, ctx_size, pkt_size=pkt_size)
+
+    if witness is not None:
+        from witness_spec import build_assumption_constraints
+        ctx_constraints = list(ctx_constraints) + build_assumption_constraints(
+            witness, shared_vars
+        )
+
     shared_vars['ctx_constraints'] = ctx_constraints
 
     return VerificationContext(
@@ -1095,6 +1112,7 @@ def run_verification(
     helper_fail_mode="off",
     helper_fail_helpers=None,
     pkt_size=None,
+    witness=None,
 ):
     """Run full verification pipeline programmatically.
 
@@ -1103,6 +1121,7 @@ def run_verification(
         rust_filepath: path to Rust eBPF object file
         entry_sym: entry symbol name
         map_specs: list of "name:type" strings
+        witness: optional WitnessSpec (see witness_spec.py)
 
     Returns:
         VerificationResult
@@ -1113,6 +1132,7 @@ def run_verification(
         helper_fail_mode=helper_fail_mode,
         helper_fail_helpers=helper_fail_helpers,
         pkt_size=pkt_size,
+        witness=witness,
     )
 
     err = generate_c_formula(vctx, c_filepath, entry_sym)
@@ -1130,8 +1150,15 @@ def main(argv):
     parser.add_argument("entry_symbol", help="Entry symbol name (used for both objects)")
     parser.add_argument(
         "map_specs",
-        nargs="+",
-        help="Map specs in name or name:type format (type: hash|array)",
+        nargs="*",
+        help="Map specs in name or name:type format (type: hash|array). "
+             "Optional when --witness supplies map_correspondence bindings.",
+    )
+    parser.add_argument(
+        "--witness",
+        default=None,
+        help="Path to a witness file (JSON, or YAML with PyYAML) declaring "
+             "bindings / assumptions / observations. See witness_spec.py.",
     )
     parser.add_argument(
         "--helper-fail-mode",
@@ -1167,15 +1194,38 @@ def main(argv):
         h.strip() for h in args.helper_fail_helpers.split(",") if h.strip()
     ]
 
-    result = run_verification(
-        args.c_ebpf,
-        args.rust_ebpf,
-        args.entry_symbol,
-        args.map_specs,
-        helper_fail_mode=args.helper_fail_mode,
-        helper_fail_helpers=selected_helpers,
-        pkt_size=args.pkt_size,
-    )
+    witness = None
+    if args.witness:
+        from witness_spec import load_witness, WitnessError
+        try:
+            witness = load_witness(args.witness)
+        except WitnessError as exc:
+            print(f"[!] witness: {exc}")
+            sys.exit(2)
+        print(f"[*] witness: loaded '{witness.name or witness.source_path}' "
+              f"({len(witness.bindings)} bindings, {len(witness.assumptions)} "
+              f"assumptions, {len(witness.observations)} observations)")
+
+    if not args.map_specs and witness is None:
+        parser.error("no map_specs given and no --witness to derive them from")
+
+    try:
+        result = run_verification(
+            args.c_ebpf,
+            args.rust_ebpf,
+            args.entry_symbol,
+            args.map_specs,
+            helper_fail_mode=args.helper_fail_mode,
+            helper_fail_helpers=selected_helpers,
+            pkt_size=args.pkt_size,
+            witness=witness,
+        )
+    except Exception as exc:
+        from witness_spec import WitnessError
+        if isinstance(exc, WitnessError):
+            print(f"[!] witness: {exc}")
+            sys.exit(2)
+        raise
 
     if not result.equivalent:
         sys.exit(1)

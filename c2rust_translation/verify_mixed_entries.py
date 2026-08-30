@@ -35,7 +35,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "map_specs",
         nargs="*",
-        help="Map specs in name[:type] form, e.g. cgroup_map:array starts:hash",
+        help="Map specs in name[:type] form, e.g. cgroup_map:array starts:hash. "
+             "Optional when --witness supplies map_correspondence bindings.",
+    )
+    parser.add_argument(
+        "--witness",
+        default=None,
+        help="Path to a witness file (JSON, or YAML with PyYAML) declaring "
+             "bindings / assumptions / observations. See witness_spec.py.",
     )
     parser.add_argument(
         "--max-steps",
@@ -79,6 +86,18 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    witness = None
+    if args.witness:
+        from witness_spec import load_witness, WitnessError
+        try:
+            witness = load_witness(args.witness)
+        except WitnessError as exc:
+            print(f"[!] witness: {exc}")
+            return 2
+        print(f"[*] witness: loaded '{witness.name or witness.source_path}' "
+              f"({len(witness.bindings)} bindings, {len(witness.assumptions)} "
+              f"assumptions, {len(witness.observations)} observations)")
+
     c_type = get_entry_section_type(args.c_obj, args.c_entry)
     r_type = get_entry_section_type(args.rust_obj, args.rust_entry)
     if not program_types_compatible(c_type, r_type):
@@ -93,12 +112,20 @@ def main() -> int:
         return 1
 
     print("[*] Preparing verification context...")
-    vctx = prepare_verification(
-        args.c_obj, args.map_specs,
-        helper_fail_mode=args.helper_fail_mode,
-        helper_fail_helpers=args.helper_fail_helpers,
-        symbolic_uninit=args.symbolic_uninit,
-    )
+    try:
+        vctx = prepare_verification(
+            args.c_obj, args.map_specs,
+            helper_fail_mode=args.helper_fail_mode,
+            helper_fail_helpers=args.helper_fail_helpers,
+            symbolic_uninit=args.symbolic_uninit,
+            witness=witness,
+        )
+    except Exception as exc:
+        from witness_spec import WitnessError
+        if isinstance(exc, WitnessError):
+            print(f"[!] witness: {exc}")
+            return 2
+        raise
 
     print(f"[*] Generating C formula with entry '{args.c_entry}'...")
     err = generate_c_formula(vctx, args.c_obj, args.c_entry, max_steps=args.max_steps,

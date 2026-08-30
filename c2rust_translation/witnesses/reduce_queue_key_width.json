@@ -1,0 +1,67 @@
+{
+  "witness": {
+    "version": "0.1",
+    "name": "reduce_queue_key_width",
+
+    "bindings": [
+      {
+        "name": "context",
+        "original":  { "object": "ctx", "type": "struct xdp_md *" },
+        "optimized": { "object": "ctx", "type": "struct xdp_md *" },
+        "relation":  { "equal": true }
+      },
+      {
+        "name": "queue_id",
+        "original":  { "object": "queue_id", "type": "u32" },
+        "optimized": { "object": "queue_id", "type": "u16" },
+        "relation": {
+          "equal": {
+            "left": "optimized.queue_id",
+            "right": { "truncate": { "value": "original.queue_id", "width": 16 } }
+          }
+        }
+      },
+      {
+        "name": "queue_packets",
+        "original":  { "object": "queue_packets", "type": "map<u32, u64>" },
+        "optimized": { "object": "queue_packets", "type": "map<u16, u64>", "map_kind": "hash" },
+        "relation": {
+          "map_correspondence": {
+            "original_key": "k",
+            "optimized_key": { "truncate": { "value": "k", "width": 16 } },
+            "value_relation": { "equal": true }
+          }
+        }
+      }
+    ],
+
+    "assumptions": [
+      {
+        "id": "A1",
+        "expression": {
+          "unsigned_le": {
+            "left": "original.ctx.rx_queue_index",
+            "right": { "value": 65535, "type": "u32" }
+          }
+        },
+        "provenance": { "kind": "developer_approved" },
+        "description": "The target environment has fewer than 65,536 RX queues."
+      }
+    ],
+
+    "observations": [
+      {
+        "name": "return_value",
+        "original": "original.return",
+        "optimized": "optimized.return",
+        "relation": "equal"
+      },
+      {
+        "name": "queue_packets",
+        "original": "original.queue_packets",
+        "optimized": "optimized.queue_packets",
+        "relation": { "use_binding": "queue_packets" }
+      }
+    ]
+  }
+}

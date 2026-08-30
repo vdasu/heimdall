@@ -84,6 +84,19 @@ python3 verify_mixed_entries.py <c_binary.o> <rust_binary.o> <c_entry> <rust_ent
 - If **SAT** (mismatch): read the counter-example carefully, understand which branch or map operation diverges, fix the Rust code, recompile, re-run the kernel verifier, re-run the safety checker, and re-check equivalence. Repeat up to 10 attempts.
 - For multi-entry programs, check each entry point.
 
+### Optional: `--witness <file.json>`
+
+Both `verify_mixed_entries.py` and `verify_equivalence.py` accept `--witness`, a
+JSON (or YAML) file that makes the checker's implicit assumptions explicit. It
+has three blocks — `bindings` (original↔optimized object correspondence),
+`assumptions` (facts the solver may assume, e.g. an input range), and
+`observations` (which outputs to compare). See `witness_spec.py` for the schema
+and expression mini-language; `witnesses/reduce_queue_key_width.json` is a worked
+example. Currently only `assumptions` change checker behaviour — each is turned
+into a solver constraint on the shared input context; `map_correspondence`
+bindings additionally supply map specs so the positional `<map:type>` args can be
+omitted.
+
 ## Step 5: Save Results
 
 - Copy final Rust source to the output directory
@@ -558,6 +571,7 @@ struct Event {
 | `aya-ebpf/target/bpfel-unknown-none-atomic/release/aya-ebpf-translated` | Compiled Rust .o |
 | `verify_mixed_entries.py` | Equivalence checker |
 | `generate_formula.py` | Formula generator |
+| `witness_spec.py` | Optional `--witness` file parser (bindings / assumptions / observations) |
 
 ---
 
