@@ -285,7 +285,7 @@ def build_map_ite_presence(paths_z3, map_name, query_key, default_presence):
     return result
 
 def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
-                           ctx_constraints=None, skip_r0=False):
+                           ctx_constraints=None, skip_r0=False, witness=None):
     """Verify equivalence using ITE canonical map semantics.
 
     Args:
@@ -294,6 +294,9 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
         unifier: Z3VariableUnifier (already used for both programs)
         ctx_constraints: optional list of claripy constraints on shared inputs
                          (e.g., XDP data <= data_end)
+        witness: optional WitnessSpec. When its `observations` block is
+                 non-empty, only the named outputs (return value / maps /
+                 globals) are compared; everything else is left unconstrained.
     """
     print("\n[=] Starting ITE-based Z3 Verification [=]")
 
@@ -367,11 +370,35 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
 
     divergence_checks = []
 
+    from witness_spec import build_observation_selection, relation_is_plain_equal, RETURN_KEY
+    sel = build_observation_selection(witness)
+    obs_hits = set()
+    if sel is not None:
+        print(f"    [*] witness: comparing only {sel.size()} observation(s): "
+              f"{('return, ' if sel.want_return else '')}{sorted(sel.names) or '(none)'}")
+
+    def _rel_note(key, fallback_label):
+        if sel is None:
+            return
+        rel = sel.relations.get(key)
+        if not relation_is_plain_equal(rel, witness):
+            print(f"    [!] witness: observation '{sel.labels.get(key, fallback_label)}' "
+                  f"relation {rel!r} is not a plain equality; stage 2 still compares "
+                  f"it as strict equality (binding transforms are stage 3)")
+
     if skip_r0:
         print("    [~] Skipping R0 comparison (void return type per BTF)")
+        if sel is not None and sel.want_return:
+            print("    [~] witness observes 'return' but entry returns void — nothing to compare")
+            obs_hits.add(RETURN_KEY)
+    elif sel is not None and not sel.want_return:
+        print("    [~] R0 comparison skipped (not among witness observations)")
     else:
         print("    [+] Comparing return values (R0)")
         divergence_checks.append(c_output_z3 != r_output_z3)
+        if sel is not None:
+            obs_hits.add(RETURN_KEY)
+            _rel_note(RETURN_KEY, "return")
 
     all_map_names = set()
     all_map_names.update(c_program_data.map_metadata.keys())
@@ -457,6 +484,8 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
         r_meta = rust_program_data.map_metadata.get(map_name)
         if c_meta is None and r_meta is None:
             continue
+        if sel is not None and map_name not in sel.names:
+            continue
 
         try:
             key_bits, val_bits = _resolve_map_bitwidths(map_name, c_meta, r_meta)
@@ -494,6 +523,9 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
 
         map_ite_fns[map_name] = (c_fn, r_fn, c_pres, r_pres, query_key, key_bits, val_bits)
         map_checks += 1
+        if sel is not None:
+            obs_hits.add(map_name)
+            _rel_note(map_name, map_name)
 
     print(f"    [+] Comparing {map_checks} maps via ITE semantics")
 
@@ -541,6 +573,8 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
         if c_bits > _GLOB_BITS_LIMIT:
             print(f"[!] .data symbol '{sym_name}': too large ({c_bits // 8}B > {_DATA_SYMBOLIZE_LIMIT}B), skipping value comparison")
             continue
+        if sel is not None and sym_name not in sel.names:
+            continue
         c_init = claripy.BVS(f'glob_{sym_name}_init', c_bits)
         r_init = claripy.BVS(f'glob_{sym_name}_init', r_bits)
         c_default = unifier.convert_and_unify(c_init, 'c')
@@ -549,6 +583,9 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
         r_ite = _build_glob_ite(sym_name, r_paths_z3_glob, r_default)
         divergence_checks.append(c_ite != r_ite)
         glob_checks += 1
+        if sel is not None:
+            obs_hits.add(sym_name)
+            _rel_note(sym_name, sym_name)
 
     c_unmatched = {n: b for n, b in c_syms.items() if n not in c_matched}
     r_unmatched = {n: b for n, b in r_syms.items() if n not in r_matched}
@@ -590,6 +627,8 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
         c_name, r_name = c_names[0], r_names[0]
         c_size_paired.add(c_name)
         r_size_paired.add(r_name)
+        if sel is not None and c_name not in sel.names and r_name not in sel.names:
+            continue
         if size_bits > _GLOB_BITS_LIMIT:
             print(f"    [~] .data alias (too large to compare): '{c_name}' (C) ↔ '{r_name}' (Rust) [{size_bits // 8}B]")
         else:
@@ -602,15 +641,23 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
             r_ite = _build_glob_ite(r_name, r_paths_z3_glob, r_init_z3)
             divergence_checks.append(c_ite != r_ite)
             glob_checks += 1
+            if sel is not None:
+                hit = c_name if c_name in sel.names else r_name
+                obs_hits.add(hit)
+                _rel_note(hit, hit)
             print(f"    [+] .data alias: '{c_name}' (C) ↔ '{r_name}' (Rust) [{size_bits // 8}B]")
 
     for sym_name, bits in sorted(c_output.items()):
         if sym_name not in c_size_paired:
+            if sel is not None and sym_name not in sel.names:
+                continue
             structural_mismatches.append(
                 f"C has .data global '{sym_name}' ({bits // 8}B) but Rust does not"
             )
     for sym_name, bits in sorted(r_output.items()):
         if sym_name not in r_size_paired:
+            if sel is not None and sym_name not in sel.names:
+                continue
             structural_mismatches.append(
                 f"Rust has .data global '{sym_name}' ({bits // 8}B) but C does not"
             )
@@ -634,6 +681,21 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
             result_type="mismatch",
             counter_example=sm_str,
         )
+
+    if sel is not None:
+        requested = set(sel.names) | ({RETURN_KEY} if sel.want_return else set())
+        missing = requested - obs_hits
+        if missing:
+            disp = sorted("return" if m == RETURN_KEY else m for m in missing)
+            msg = (
+                "witness observations name outputs not present in the generated "
+                f"formulas: {disp}. Observable here: return, "
+                f"maps={sorted(all_map_names)}, globals={sorted(all_data_syms)}"
+            )
+            print(f"\n[!] {msg}")
+            return VerificationResult(
+                equivalent=False, result_type="witness_error", counter_example=msg
+            )
 
     if not divergence_checks:
         print("[!] No outputs or maps found to compare. Verification is meaningless.")
@@ -822,6 +884,7 @@ class VerificationContext:
     symbolic_uninit: bool = False
     program_type: str = "default"
     c_filepath: str = ""
+    witness: Any = None
 
 def prepare_verification(c_filepath, map_specs, helper_fail_mode="off", helper_fail_helpers=None, pkt_size=None, symbolic_uninit=False, witness=None):
     """Prepare shared verification context and generate the C formula (once).
@@ -911,6 +974,7 @@ def prepare_verification(c_filepath, map_specs, helper_fail_mode="off", helper_f
         symbolic_uninit=symbolic_uninit,
         program_type=program_type,
         c_filepath=c_filepath,
+        witness=witness,
     )
 
 def generate_c_formula(vctx, c_filepath, entry_sym, max_steps=50000, ringbuf_track_max=512):
@@ -1102,7 +1166,8 @@ def run_verification_rust_only(vctx, rust_filepath, entry_sym, max_steps=50000, 
     unifier = Z3VariableUnifier()
     ctx_constraints = vctx.shared_vars.get('ctx_constraints', [])
     return verify_equivalence_ite(vctx.c_program_data, r_program_data, unifier,
-                                  ctx_constraints=ctx_constraints, skip_r0=skip_r0)
+                                  ctx_constraints=ctx_constraints, skip_r0=skip_r0,
+                                  witness=vctx.witness)
 
 def run_verification(
     c_filepath,

@@ -1,0 +1,16 @@
+{
+  "witness": {
+    "version": "0.1",
+    "name": "minimal_return_only",
+    "bindings": [],
+    "assumptions": [],
+    "observations": [
+      {
+        "name": "return_value",
+        "original": "original.return",
+        "optimized": "optimized.return",
+        "relation": "equal"
+      }
+    ]
+  }
+}

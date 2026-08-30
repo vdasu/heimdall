@@ -92,10 +92,20 @@ has three blocks — `bindings` (original↔optimized object correspondence),
 `assumptions` (facts the solver may assume, e.g. an input range), and
 `observations` (which outputs to compare). See `witness_spec.py` for the schema
 and expression mini-language; `witnesses/reduce_queue_key_width.json` is a worked
-example. Currently only `assumptions` change checker behaviour — each is turned
-into a solver constraint on the shared input context; `map_correspondence`
-bindings additionally supply map specs so the positional `<map:type>` args can be
-omitted.
+example.
+
+- `assumptions`: each is lowered to a solver constraint on the shared input
+  context (same channel as the built-in XDP `data<=data_end`).
+- `observations`: when non-empty, the proof compares **only** the named outputs
+  (`original.return`, or a map / `.data` global by name); the return value and
+  any unlisted map/global are left unconstrained. An observation naming an
+  output that is not in the formulas fails with `result_type: witness_error`. A
+  `relation` other than plain equality (e.g. `use_binding` with a transform)
+  currently still compares as strict equality, with a warning — transforms land
+  in stage 3.
+- `bindings`: `map_correspondence` entries supply map specs so the positional
+  `<map:type>` args can be omitted; their transforms are not applied yet
+  (stage 3).
 
 ## Step 5: Save Results
 

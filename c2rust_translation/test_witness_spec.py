@@ -21,11 +21,17 @@ import claripy
 
 from witness_spec import (
     ExprContext,
+    Observation,
+    RETURN_KEY,
     WitnessError,
     _bits_of_type,
     build_assumption_constraints,
+    build_observation_selection,
     eval_expr,
+    find_binding,
     load_witness,
+    observation_target,
+    relation_is_plain_equal,
 )
 from generate_formula import build_ctx_shared_vars
 
@@ -232,6 +238,49 @@ def t_no_assumptions_is_empty():
 # --------------------------------------------------------------------------- #
 # type helper
 # --------------------------------------------------------------------------- #
+def t_observation_target():
+    assert observation_target(Observation("return_value", "original.return", "optimized.return", "equal")) == ("return", "return")
+    assert observation_target(Observation("queue_packets", "original.queue_packets", None, None)) == ("name", "queue_packets")
+    assert observation_target(Observation("return_value", None, None, None)) == ("return", "return_value")
+    assert observation_target(Observation("events", None, None, None)) == ("name", "events")
+    assert observation_target(Observation("x", "original.ctx.foo", None, None)) == ("name", "foo")
+
+
+def t_build_observation_selection():
+    assert build_observation_selection(None) is None
+
+    w = load_witness(EXAMPLE)
+    sel = build_observation_selection(w)
+    assert sel is not None
+    assert sel.want_return is True
+    assert sel.names == {"queue_packets"}
+    assert sel.size() == 2
+    assert sel.relations[RETURN_KEY] == "equal"
+    assert sel.relations["queue_packets"] == {"use_binding": "queue_packets"}
+
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.write(fd, json.dumps({"witness": {"version": "0.1", "name": "e", "observations": []}}).encode())
+    os.close(fd)
+    try:
+        assert build_observation_selection(load_witness(path)) is None
+    finally:
+        os.unlink(path)
+
+
+def t_relation_is_plain_equal():
+    w = load_witness(EXAMPLE)  # has bindings: context(equal:true), queue_id(equal:{..}), queue_packets(map_correspondence w/ truncate)
+    assert relation_is_plain_equal(None, w) is True
+    assert relation_is_plain_equal("equal", w) is True
+    assert relation_is_plain_equal({"equal": True}, w) is True
+    assert relation_is_plain_equal({"equal": {"left": "a", "right": "b"}}, w) is False
+    assert relation_is_plain_equal({"use_binding": "context"}, w) is True          # equal: true
+    assert relation_is_plain_equal({"use_binding": "queue_id"}, w) is False        # structured equal
+    assert relation_is_plain_equal({"use_binding": "queue_packets"}, w) is False   # key truncate
+    assert relation_is_plain_equal({"use_binding": "does_not_exist"}, w) is False
+    assert find_binding(w, "queue_id").name == "queue_id"
+    assert find_binding(w, "nope") is None
+
+
 def t_bits_of_type():
     assert _bits_of_type("u8") == 8
     assert _bits_of_type("u16") == 16
@@ -312,6 +361,9 @@ def main():
         ("comparisons + all_of/any_of", t_comparisons_and_logic),
         ("assumption constraint semantics", t_assumption_constraint_semantics),
         ("no assumptions -> []", t_no_assumptions_is_empty),
+        ("observation_target classification", t_observation_target),
+        ("build_observation_selection", t_build_observation_selection),
+        ("relation_is_plain_equal / find_binding", t_relation_is_plain_equal),
         ("_bits_of_type table", t_bits_of_type),
     ]
     for name, fn in tests:

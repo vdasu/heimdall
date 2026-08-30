@@ -495,3 +495,109 @@ def build_assumption_constraints(witness: WitnessSpec, shared_vars: dict) -> lis
         f"from {witness.source_path}"
     )
     return constraints
+
+
+# --------------------------------------------------------------------------- #
+# Stage-2 entry point: observations -> comparison selection
+# --------------------------------------------------------------------------- #
+RETURN_KEY = "\x00return"
+_RETURN_TOKENS = {"return", "return_value", "retval", "ret", "r0"}
+
+
+def observation_target(obs: Observation):
+    """Classify what an observation points at.
+
+    Returns ('return', <label>) for the program return value, or
+    ('name', <symbol>) for a map / .data global identified by symbol name.
+    The reference is read from `original` (falling back to `optimized`, then
+    the observation `name`); a leading `original.` / `optimized.` / `ctx.`
+    is stripped.
+    """
+    ref = obs.original or obs.optimized or obs.name or ""
+    parts = [p for p in str(ref).split(".") if p]
+    if parts and parts[0] in ("original", "optimized"):
+        parts = parts[1:]
+    if parts and parts[0] == "ctx":
+        parts = parts[1:]
+    token = parts[-1] if parts else str(obs.name or "")
+    if token.lower() in _RETURN_TOKENS:
+        return ("return", token)
+    return ("name", token)
+
+
+@dataclass
+class ObservationSelection:
+    """The set of outputs a witness restricts the equivalence proof to."""
+
+    want_return: bool
+    names: set                       # map / global symbol names to compare
+    relations: dict                  # key (symbol name or RETURN_KEY) -> raw relation
+    labels: dict                     # same keys -> observation `name`, for messages
+
+    def size(self) -> int:
+        return len(self.names) + (1 if self.want_return else 0)
+
+
+def build_observation_selection(witness) -> Optional[ObservationSelection]:
+    """Return an ObservationSelection, or None to compare everything.
+
+    None is returned when there is no witness or its `observations` block is
+    empty — in that case the checker keeps its default behaviour of comparing
+    the return value plus every map and every .data global.
+    """
+    obs = list(getattr(witness, "observations", None) or []) if witness is not None else []
+    if not obs:
+        return None
+    want_return = False
+    names, relations, labels = set(), {}, {}
+    for o in obs:
+        kind, token = observation_target(o)
+        key = RETURN_KEY if kind == "return" else token
+        if kind == "return":
+            want_return = True
+        else:
+            names.add(token)
+        relations[key] = o.relation
+        labels[key] = o.name
+    return ObservationSelection(want_return, names, relations, labels)
+
+
+def find_binding(witness, name):
+    for b in getattr(witness, "bindings", None) or []:
+        if b.name == name:
+            return b
+    return None
+
+
+def _binding_is_identity_equal(b: Binding) -> bool:
+    """True if a binding asserts plain equality with no transform."""
+    rel = b.relation or {}
+    if rel.get("equal") is True:
+        return True
+    mc = rel.get("map_correspondence")
+    if isinstance(mc, dict):
+        vr = mc.get("value_relation")
+        value_equal = (
+            vr is True
+            or vr == "equal"
+            or (isinstance(vr, dict) and vr.get("equal") is True)
+        )
+        opt_key = mc.get("optimized_key")
+        key_identity = opt_key is None or opt_key == mc.get("original_key")
+        return bool(value_equal and key_identity)
+    return False
+
+
+def relation_is_plain_equal(relation, witness) -> bool:
+    """True if an observation `relation` means 'compare for exact equality'
+    with no transform (the only thing stage 2 can actually enforce)."""
+    if relation in (None, True, "equal", "eq"):
+        return True
+    if isinstance(relation, dict):
+        if relation.get("equal") is True:
+            return True
+        ub = relation.get("use_binding")
+        if ub is not None:
+            b = find_binding(witness, ub)
+            return b is not None and _binding_is_identity_equal(b)
+    return False
