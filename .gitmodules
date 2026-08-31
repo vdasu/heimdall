@@ -1,0 +1,4 @@
+[submodule "openevolve"]
+	path = openevolve
+	url = https://github.com/XiangyuG/openevolve
+	branch = main
