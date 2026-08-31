@@ -294,7 +294,26 @@ def t_build_binding_plan():
     assert mb.original_key == "k"
     assert mb.optimized_key == {"truncate": {"value": "k", "width": 16}}
     assert mb.value_is_identity() is True
+    assert mb.assume is None
     assert build_binding_plan(None) is None
+
+    # a map_correspondence with an explicit key-domain `assume`
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.write(fd, json.dumps({"witness": {"version": "0.1", "name": "d", "bindings": [
+        {"name": "m",
+         "original": {"object": "m"}, "optimized": {"object": "m"},
+         "relation": {"map_correspondence": {
+             "original_key": "k",
+             "assume": {"unsigned_le": {"left": "k", "right": {"value": 65535, "type": "u32"}}},
+             "optimized_key": {"truncate": {"value": "k", "width": 16}},
+             "value_relation": {"equal": True}}}},
+    ]}}).encode())
+    os.close(fd)
+    try:
+        p2 = build_binding_plan(load_witness(path))
+    finally:
+        os.unlink(path)
+    assert p2.maps["m"].assume == {"unsigned_le": {"left": "k", "right": {"value": 65535, "type": "u32"}}}
 
 
 def t_eval_witness_expr_z3():

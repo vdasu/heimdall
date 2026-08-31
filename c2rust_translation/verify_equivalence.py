@@ -427,9 +427,17 @@ def _apply_map_correspondence(mb, map_name, c_meta, r_meta, c_pd, r_pd,
         if tok == mb.original_key:
             return k
         raise _WitnessError(
-            f"binding {mb.name}: optimized_key references {tok!r}; only the "
+            f"binding {mb.name}: expression references {tok!r}; only the "
             f"original_key symbol {mb.original_key!r} is in scope"
         )
+
+    if mb.assume is not None:
+        dom = eval_witness_expr_z3(mb.assume, _kresolve)
+        if not z3.is_bool(dom):
+            raise _WitnessError(f"binding {mb.name}: `assume` must be a boolean predicate")
+        solver.add(dom)
+        print(f"    [*] map_correspondence '{mb.name}': key domain restricted by "
+              f"assume {mb.assume}")
 
     tk = eval_witness_expr_z3(mb.optimized_key, _kresolve)
     if tk.size() != r_kb:
@@ -1325,6 +1333,16 @@ def run_verification_rust_only(vctx, rust_filepath, entry_sym, max_steps=50000, 
     if mt_result is not None:
         return mt_result
 
+    _corr_maps = set()
+    if vctx.witness is not None:
+        try:
+            from witness_spec import build_binding_plan
+            _bp = build_binding_plan(vctx.witness)
+            if _bp is not None:
+                _corr_maps = set(_bp.maps.keys())
+        except Exception:
+            _corr_maps = set()
+
     r_btf_metadata = parse_map_metadata_from_btf(rust_filepath)
 
     if r_btf_metadata:
@@ -1337,6 +1355,13 @@ def run_verification_rust_only(vctx, rust_filepath, entry_sym, max_steps=50000, 
         for name in sorted(set(vctx.c_btf_metadata or {}) & set(r_btf_metadata)):
             c_meta = vctx.c_btf_metadata[name]
             r_meta = r_btf_metadata[name]
+            if name in _corr_maps:
+                if c_meta.key_size != r_meta.key_size or c_meta.value_size != r_meta.value_size:
+                    print(f"[*] map '{name}': key/value size differs "
+                          f"(C key={c_meta.key_size} val={c_meta.value_size}, "
+                          f"Rust key={r_meta.key_size} val={r_meta.value_size}) — "
+                          f"allowed by witness map_correspondence")
+                continue
             if c_meta.key_size != r_meta.key_size:
                 print(f"[!] BTF MISMATCH: map '{name}' key_size differs: "
                       f"C={c_meta.key_size} vs Rust={r_meta.key_size}")

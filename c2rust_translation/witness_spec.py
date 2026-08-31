@@ -617,6 +617,10 @@ class MapBinding:
     """A `map_correspondence` binding: original map entry at key `k`
     corresponds to the optimized map entry at key `optimized_key(k)`, with
     values related by `value_relation`.
+
+    `assume` optionally restricts the domain of `k` (a boolean expression over
+    the `original_key` symbol) — e.g. `k <= 65535` when a range assumption
+    makes a 32->16 bit key narrowing lossless.
     """
     name: str
     original_object: str
@@ -624,6 +628,7 @@ class MapBinding:
     original_key: str                 # the free-variable name (e.g. "k")
     optimized_key: Any                # expression tree over `original_key`
     value_relation: Any               # True / "equal" / {"equal": true|{left,right}}
+    assume: Any = None                # optional boolean expr over `original_key`
 
     def value_is_identity(self) -> bool:
         vr = self.value_relation
@@ -672,6 +677,7 @@ def build_binding_plan(witness) -> Optional[BindingPlan]:
                 original_key=str(mc["original_key"]),
                 optimized_key=mc["optimized_key"],
                 value_relation=mc.get("value_relation", True),
+                assume=mc.get("assume"),
             )
             plan.maps[orig_obj] = mb
             if opt_obj != orig_obj:

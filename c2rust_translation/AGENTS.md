@@ -105,8 +105,12 @@ example.
     every original key `k`, C's entry at `k` is matched against Rust's entry at
     `optimized_key(k)`, with values related by `value_relation` (`equal: true`,
     or `equal: {left, right}` over `original.value` / `optimized.value`). C and
-    Rust key widths may differ. The binding also supplies the map spec, so the
-    positional `<map:type>` args can be omitted.
+    Rust key/value widths may differ (the BTF size-mismatch guard is skipped for
+    the bound map). An optional `assume` (a boolean expression over the
+    `original_key` symbol, e.g. `k <= 65535`) restricts the key domain — needed
+    when a range assumption is what makes a key narrowing lossless. The binding
+    also supplies the map spec, so the positional `<map:type>` args can be
+    omitted. Worked example: `witnesses/reduce_queue/`.
   - `equal: true` — identity; this is already the default (same-named inputs are
     unified), nothing to do.
   - `equal: {left, right}` on a scalar object — **not applied yet**; logged and
