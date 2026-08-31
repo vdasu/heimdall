@@ -382,6 +382,32 @@ def build_map_ite_presence(paths_z3, map_name, query_key, default_presence):
     return result
 
 
+def _shared_init_consts(expr):
+    """Map {name -> z3 const} for every uninterpreted constant in `expr` whose
+    name marks it as a shared initial symbol (`shared_init_*` map contents,
+    `shared_input_*` program input). Used to tie together the C and Rust sides
+    of a map_correspondence whose value widths differ (the unifier keys its
+    cache on (name, sort), so different-width symbols with the same base name
+    are NOT merged and must be related explicitly)."""
+    out = {}
+    seen = set()
+
+    def walk(n):
+        nid = n.get_id()
+        if nid in seen:
+            return
+        seen.add(nid)
+        if z3.is_const(n) and n.decl().kind() == z3.Z3_OP_UNINTERPRETED:
+            nm = n.decl().name()
+            if nm.startswith("shared_init_") or nm.startswith("shared_input_"):
+                out.setdefault(nm, n)
+        for c in n.children():
+            walk(c)
+
+    walk(expr)
+    return out
+
+
 def _side_map_bits(program_data, meta, name, collect):
     """Resolve (key_bits, value_bits) for one side of a map, preferring
     declared metadata and falling back to widths seen in path snapshots."""
@@ -454,20 +480,10 @@ def _apply_map_correspondence(mb, map_name, c_meta, r_meta, c_pd, r_pd,
     c_def_p = z3.Select(c_init_p, k)
     r_def_p = z3.Select(r_init_p, tk)
 
-    # corresponding maps start in corresponding states
-    _cv, _rv = _z3_coerce_pair(c_def_v, r_def_v, signed=False)
-    solver.add(_cv == _rv)
-    solver.add(c_def_p == r_def_p)
-
-    c_fn = build_map_ite(c_paths_z3, map_name, k, c_def_v)
-    r_fn = build_map_ite(r_paths_z3, r_name, tk, r_def_v)
-    c_pres = build_map_ite_presence(c_paths_z3, map_name, k, c_def_p)
-    r_pres = build_map_ite_presence(r_paths_z3, r_name, tk, r_def_p)
-
-    if mb.value_is_identity():
-        a, b = _z3_coerce_pair(c_fn, r_fn, signed=False)
-        divergence_checks.append(a != b)
-    else:
+    # `_relate_values(cv, rv)` -> Z3 Bool asserting the witness's value_relation
+    # holds between a C-side value `cv` and the corresponding Rust-side `rv`.
+    eq = None
+    if not mb.value_is_identity():
         eq = (mb.value_relation or {}).get("equal")
         if not (isinstance(eq, dict) and "left" in eq and "right" in eq):
             raise _WitnessError(
@@ -475,9 +491,14 @@ def _apply_map_correspondence(mb, map_name, c_meta, r_meta, c_pd, r_pd,
                 f"`equal: {{left, right}}`"
             )
 
+    def _relate_values(cv, rv):
+        if eq is None:
+            a, b = _z3_coerce_pair(cv, rv, signed=False)
+            return a == b
+
         def _vresolve(tok):
             if isinstance(tok, str) and tok.split(".")[0] in ("original", "optimized"):
-                return c_fn if tok.split(".")[0] == "original" else r_fn
+                return cv if tok.split(".")[0] == "original" else rv
             raise _WitnessError(
                 f"binding {mb.name}: value_relation references {tok!r}; use "
                 f"'original.value' / 'optimized.value'"
@@ -486,8 +507,32 @@ def _apply_map_correspondence(mb, map_name, c_meta, r_meta, c_pd, r_pd,
         lhs = eval_witness_expr_z3(eq["left"], _vresolve)
         rhs = eval_witness_expr_z3(eq["right"], _vresolve)
         lhs, rhs = _z3_coerce_pair(lhs, rhs, signed=False)
-        divergence_checks.append(lhs != rhs)
+        return lhs == rhs
 
+    # corresponding maps start in corresponding states (the fresh default cells,
+    # plus every angr-derived initial symbol the two sides' formulas share by
+    # name — when C and Rust map value widths differ the unifier does NOT merge
+    # those, so they must be tied together explicitly here).
+    solver.add(_relate_values(c_def_v, r_def_v))
+    solver.add(c_def_p == r_def_p)
+
+    c_fn = build_map_ite(c_paths_z3, map_name, k, c_def_v)
+    r_fn = build_map_ite(r_paths_z3, r_name, tk, r_def_v)
+    c_pres = build_map_ite_presence(c_paths_z3, map_name, k, c_def_p)
+    r_pres = build_map_ite_presence(r_paths_z3, r_name, tk, r_def_p)
+
+    c_init_syms = _shared_init_consts(c_fn)
+    r_init_syms = _shared_init_consts(r_fn)
+    for nm, cnode in c_init_syms.items():
+        rnode = r_init_syms.get(nm)
+        if rnode is None:
+            continue
+        if cnode.sort() == rnode.sort():
+            solver.add(cnode == rnode)          # already unified; harmless
+        else:
+            solver.add(_relate_values(cnode, rnode))
+
+    divergence_checks.append(z3.Not(_relate_values(c_fn, r_fn)))
     divergence_checks.append(c_pres != r_pres)
     map_ite_fns[map_name] = (c_fn, r_fn, c_pres, r_pres, k, c_kb, c_vb)
     print(f"    [+] map_correspondence '{mb.name}': C key {c_kb}b ↔ Rust key {r_kb}b "

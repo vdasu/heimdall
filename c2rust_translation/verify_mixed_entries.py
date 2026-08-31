@@ -45,6 +45,12 @@ def parse_args() -> argparse.Namespace:
              "bindings / assumptions / observations. See witness_spec.py.",
     )
     parser.add_argument(
+        "--json-output",
+        default=None,
+        help="Also write the final verdict as JSON to this path: "
+             '{"equivalent": bool|null, "result_type": str, "counter_example": str|null}.',
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=50000,
@@ -86,6 +92,20 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    def _finish(rc, equivalent, result_type, counter_example=None):
+        if args.json_output:
+            import json
+            try:
+                with open(args.json_output, "w") as f:
+                    json.dump({
+                        "equivalent": equivalent,
+                        "result_type": result_type,
+                        "counter_example": counter_example,
+                    }, f, indent=2)
+            except OSError as exc:
+                print(f"[!] could not write --json-output: {exc}")
+        return rc
+
     witness = None
     if args.witness:
         from witness_spec import load_witness, WitnessError
@@ -93,7 +113,7 @@ def main() -> int:
             witness = load_witness(args.witness)
         except WitnessError as exc:
             print(f"[!] witness: {exc}")
-            return 2
+            return _finish(2, None, "witness_error", str(exc))
         print(f"[*] witness: loaded '{witness.name or witness.source_path}' "
               f"({len(witness.bindings)} bindings, {len(witness.assumptions)} "
               f"assumptions, {len(witness.observations)} observations)")
@@ -105,11 +125,12 @@ def main() -> int:
         print(f"    C    '{args.c_entry}' is of type '{c_type}'")
         print(f"    Rust '{args.rust_entry}' is of type '{r_type}'")
         print(f"    These BPF program types are incompatible — cannot be equivalent.")
+        ce = f"C entry type '{c_type}' is incompatible with Rust entry type '{r_type}'"
         print("\n[=] Final Result [=]")
         print("equivalent: False")
         print("result_type: type_mismatch")
-        print(f"counter_example: C entry type '{c_type}' is incompatible with Rust entry type '{r_type}'")
-        return 1
+        print(f"counter_example: {ce}")
+        return _finish(1, False, "type_mismatch", ce)
 
     print("[*] Preparing verification context...")
     try:
@@ -124,7 +145,7 @@ def main() -> int:
         from witness_spec import WitnessError
         if isinstance(exc, WitnessError):
             print(f"[!] witness: {exc}")
-            return 2
+            return _finish(2, None, "witness_error", str(exc))
         raise
 
     print(f"[*] Generating C formula with entry '{args.c_entry}'...")
@@ -135,7 +156,7 @@ def main() -> int:
         print(f"    result_type: {err.result_type}")
         if err.counter_example:
             print(f"    detail: {err.counter_example}")
-        return 2
+        return _finish(2, err.equivalent, err.result_type, err.counter_example or None)
 
     print(f"[*] Verifying Rust object with entry '{args.rust_entry}'...")
     result = run_verification_rust_only(vctx, args.rust_obj, args.rust_entry, max_steps=args.max_steps,
@@ -148,7 +169,8 @@ def main() -> int:
         print("counter_example:")
         print(result.counter_example)
 
-    return 0 if result.equivalent else 1
+    return _finish(0 if result.equivalent else 1,
+                   result.equivalent, result.result_type, result.counter_example or None)
 
 if __name__ == "__main__":
     sys.exit(main())
