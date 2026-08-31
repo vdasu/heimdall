@@ -42,6 +42,103 @@ try:
 except ImportError:
     from c2rust_translation.verify_ebpf_kernel import find_maps as _find_maps_for_type_check
 
+try:
+    from witness_spec import WitnessError as _WitnessError
+except ImportError:
+    from c2rust_translation.witness_spec import WitnessError as _WitnessError
+
+
+# --------------------------------------------------------------------------- #
+# Witness expression -> Z3 (stage 3: binding transforms)
+#
+# Mirrors witness_spec.eval_expr, but lowers directly to Z3 so the leaves can
+# be the exact Z3 constants the formulas already use (map keys, split inputs).
+# Keep the operator set in sync with witness_spec.eval_expr.
+# --------------------------------------------------------------------------- #
+def _z3_coerce_pair(a, b, signed):
+    sa, sb = a.size(), b.size()
+    if sa == sb:
+        return a, b
+    ext = z3.SignExt if signed else z3.ZeroExt
+    if sa < sb:
+        return ext(sb - sa, a), b
+    return a, ext(sa - sb, b)
+
+
+def eval_witness_expr_z3(node, resolve):
+    """Evaluate a witness expression node to a Z3 AST.
+
+    `resolve(path_or_name) -> z3 BitVec` supplies the leaves (bound variables
+    and path references).
+    """
+    from witness_spec import _bits_of_type, WitnessError
+
+    if isinstance(node, bool):
+        return z3.BoolVal(node)
+    if isinstance(node, int):
+        return z3.BitVecVal(node, 64)
+    if isinstance(node, str):
+        return resolve(node)
+    if not isinstance(node, dict):
+        raise WitnessError(f"cannot evaluate expression node: {node!r}")
+    if "path" in node:
+        return resolve(node["path"])
+    if "value" in node:
+        bits = _bits_of_type(node.get("type", "u64"))
+        return z3.BitVecVal(int(node["value"]) & ((1 << bits) - 1), bits)
+
+    if len(node) != 1:
+        raise WitnessError(f"expression object needs exactly one operator key, got {sorted(node)}")
+    (op, arg), = node.items()
+
+    if op in ("truncate", "zero_extend", "sign_extend"):
+        v = eval_witness_expr_z3(arg["value"], resolve)
+        width = int(arg["width"])
+        cur = v.size()
+        if op == "truncate":
+            if width > cur:
+                raise WitnessError(f"truncate width {width} > value width {cur}")
+            return z3.Extract(width - 1, 0, v)
+        if width < cur:
+            raise WitnessError(f"{op} width {width} < value width {cur}")
+        if width == cur:
+            return v
+        return (z3.ZeroExt if op == "zero_extend" else z3.SignExt)(width - cur, v)
+
+    if op == "bitnot":
+        return ~eval_witness_expr_z3(arg, resolve)
+    if op == "not":
+        return z3.Not(eval_witness_expr_z3(arg, resolve))
+    if op in ("all_of", "any_of"):
+        parts = [eval_witness_expr_z3(x, resolve) for x in arg]
+        return z3.And(*parts) if op == "all_of" else z3.Or(*parts)
+
+    if op in ("add", "sub", "mul", "bitand", "bitor", "bitxor", "shl", "lshr", "ashr"):
+        l = eval_witness_expr_z3(arg["left"], resolve)
+        r = eval_witness_expr_z3(arg["right"], resolve)
+        l, r = _z3_coerce_pair(l, r, signed=False)
+        return {
+            "add": lambda: l + r, "sub": lambda: l - r, "mul": lambda: l * r,
+            "bitand": lambda: l & r, "bitor": lambda: l | r, "bitxor": lambda: l ^ r,
+            "shl": lambda: l << r, "lshr": lambda: z3.LShR(l, r), "ashr": lambda: l >> r,
+        }[op]()
+
+    cmp_signed = {"signed_le", "signed_lt", "signed_ge", "signed_gt"}
+    if op in ("eq", "ne", "unsigned_le", "unsigned_lt", "unsigned_ge", "unsigned_gt") or op in cmp_signed:
+        l = eval_witness_expr_z3(arg["left"], resolve)
+        r = eval_witness_expr_z3(arg["right"], resolve)
+        l, r = _z3_coerce_pair(l, r, signed=op in cmp_signed)
+        return {
+            "eq": lambda: l == r, "ne": lambda: l != r,
+            "unsigned_le": lambda: z3.ULE(l, r), "unsigned_lt": lambda: z3.ULT(l, r),
+            "unsigned_ge": lambda: z3.UGE(l, r), "unsigned_gt": lambda: z3.UGT(l, r),
+            "signed_le": lambda: l <= r, "signed_lt": lambda: l < r,
+            "signed_ge": lambda: l >= r, "signed_gt": lambda: l > r,
+        }[op]()
+
+    raise WitnessError(f"unknown expression operator {op!r}")
+
+
 VALID_HELPER_FAIL_MODES = ("off", "all", "selected")
 DEFAULT_FAILABLE_HELPERS = (
     "bpf_probe_read",
@@ -284,6 +381,112 @@ def build_map_ite_presence(paths_z3, map_name, query_key, default_presence):
         result = z3.If(path_pred_z3, path_presence, result)
     return result
 
+
+def _side_map_bits(program_data, meta, name, collect):
+    """Resolve (key_bits, value_bits) for one side of a map, preferring
+    declared metadata and falling back to widths seen in path snapshots."""
+    kb = vb = None
+    if meta:
+        try:
+            kb = (int(meta.get('key_size', 0)) * 8) or None
+            vb = (int(meta.get('value_size', 0)) * 8) or None
+        except Exception:
+            pass
+    k_set, v_set = collect(program_data, name)
+    if kb is None and k_set:
+        kb = sorted(k_set)[0]
+    if vb is None and v_set:
+        vb = sorted(v_set)[0]
+    return kb, vb
+
+
+def _apply_map_correspondence(mb, map_name, c_meta, r_meta, c_pd, r_pd,
+                              c_paths_z3, r_paths_z3, solver,
+                              divergence_checks, map_ite_fns, collect):
+    """Compare a map under a witness `map_correspondence` binding.
+
+    Instead of comparing C and Rust at one shared key, this compares, for every
+    original key `k`, the C entry at `k` against the Rust entry at
+    `optimized_key(k)`, with values related by `value_relation`.
+    """
+    from witness_spec import _expr_summary
+
+    r_name = mb.optimized_object if mb.optimized_object in r_pd.map_metadata else map_name
+
+    c_kb, c_vb = _side_map_bits(c_pd, c_meta, map_name, collect)
+    r_kb, r_vb = _side_map_bits(r_pd, r_meta or r_pd.map_metadata.get(r_name), r_name, collect)
+    if not (c_kb and c_vb and r_kb and r_vb):
+        raise _WitnessError(
+            f"binding {mb.name}: cannot resolve key/value widths for map "
+            f"'{map_name}' (C key={c_kb} val={c_vb}, Rust key={r_kb} val={r_vb})"
+        )
+
+    k = z3.BitVec(f'corrk_{map_name}', c_kb)
+
+    def _kresolve(tok):
+        if tok == mb.original_key:
+            return k
+        raise _WitnessError(
+            f"binding {mb.name}: optimized_key references {tok!r}; only the "
+            f"original_key symbol {mb.original_key!r} is in scope"
+        )
+
+    tk = eval_witness_expr_z3(mb.optimized_key, _kresolve)
+    if tk.size() != r_kb:
+        tk = (z3.ZeroExt(r_kb - tk.size(), tk) if tk.size() < r_kb
+              else z3.Extract(r_kb - 1, 0, tk))
+
+    c_init_v = z3.Array(f'corr_init_{map_name}_c', z3.BitVecSort(c_kb), z3.BitVecSort(c_vb))
+    r_init_v = z3.Array(f'corr_init_{map_name}_r', z3.BitVecSort(r_kb), z3.BitVecSort(r_vb))
+    c_init_p = z3.Array(f'corr_initp_{map_name}_c', z3.BitVecSort(c_kb), z3.BitVecSort(1))
+    r_init_p = z3.Array(f'corr_initp_{map_name}_r', z3.BitVecSort(r_kb), z3.BitVecSort(1))
+
+    c_def_v = z3.Select(c_init_v, k)
+    r_def_v = z3.Select(r_init_v, tk)
+    c_def_p = z3.Select(c_init_p, k)
+    r_def_p = z3.Select(r_init_p, tk)
+
+    # corresponding maps start in corresponding states
+    _cv, _rv = _z3_coerce_pair(c_def_v, r_def_v, signed=False)
+    solver.add(_cv == _rv)
+    solver.add(c_def_p == r_def_p)
+
+    c_fn = build_map_ite(c_paths_z3, map_name, k, c_def_v)
+    r_fn = build_map_ite(r_paths_z3, r_name, tk, r_def_v)
+    c_pres = build_map_ite_presence(c_paths_z3, map_name, k, c_def_p)
+    r_pres = build_map_ite_presence(r_paths_z3, r_name, tk, r_def_p)
+
+    if mb.value_is_identity():
+        a, b = _z3_coerce_pair(c_fn, r_fn, signed=False)
+        divergence_checks.append(a != b)
+    else:
+        eq = (mb.value_relation or {}).get("equal")
+        if not (isinstance(eq, dict) and "left" in eq and "right" in eq):
+            raise _WitnessError(
+                f"binding {mb.name}: value_relation must be `equal: true` or "
+                f"`equal: {{left, right}}`"
+            )
+
+        def _vresolve(tok):
+            if isinstance(tok, str) and tok.split(".")[0] in ("original", "optimized"):
+                return c_fn if tok.split(".")[0] == "original" else r_fn
+            raise _WitnessError(
+                f"binding {mb.name}: value_relation references {tok!r}; use "
+                f"'original.value' / 'optimized.value'"
+            )
+
+        lhs = eval_witness_expr_z3(eq["left"], _vresolve)
+        rhs = eval_witness_expr_z3(eq["right"], _vresolve)
+        lhs, rhs = _z3_coerce_pair(lhs, rhs, signed=False)
+        divergence_checks.append(lhs != rhs)
+
+    divergence_checks.append(c_pres != r_pres)
+    map_ite_fns[map_name] = (c_fn, r_fn, c_pres, r_pres, k, c_kb, c_vb)
+    print(f"    [+] map_correspondence '{mb.name}': C key {c_kb}b ↔ Rust key {r_kb}b "
+          f"via {_expr_summary(mb.optimized_key)}; "
+          f"value {'equal' if mb.value_is_identity() else 'related'}")
+
+
 def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
                            ctx_constraints=None, skip_r0=False, witness=None):
     """Verify equivalence using ITE canonical map semantics.
@@ -370,12 +573,23 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
 
     divergence_checks = []
 
-    from witness_spec import build_observation_selection, relation_is_plain_equal, RETURN_KEY
+    from witness_spec import (
+        build_observation_selection, relation_is_plain_equal, RETURN_KEY,
+        build_binding_plan,
+    )
     sel = build_observation_selection(witness)
     obs_hits = set()
     if sel is not None:
         print(f"    [*] witness: comparing only {sel.size()} observation(s): "
               f"{('return, ' if sel.want_return else '')}{sorted(sel.names) or '(none)'}")
+
+    plan = build_binding_plan(witness)
+    if plan is not None:
+        for bname, reason in plan.unsupported:
+            print(f"    [!] witness: binding '{bname}' not applied — {reason}")
+        if plan.maps:
+            print(f"    [*] witness: applying map_correspondence for "
+                  f"{sorted(set(mb.name for mb in plan.maps.values()))}")
 
     def _rel_note(key, fallback_label):
         if sel is None:
@@ -485,6 +699,23 @@ def verify_equivalence_ite(c_program_data, rust_program_data, unifier,
         if c_meta is None and r_meta is None:
             continue
         if sel is not None and map_name not in sel.names:
+            continue
+
+        mb = plan.maps.get(map_name) if plan is not None else None
+        if mb is not None and map_name == mb.original_object:
+            _apply_map_correspondence(
+                mb, map_name, c_meta, r_meta,
+                c_program_data, rust_program_data,
+                c_paths_z3, r_paths_z3, solver,
+                divergence_checks, map_ite_fns, _collect_snapshot_bitwidths,
+            )
+            map_checks += 1
+            if sel is not None:
+                obs_hits.add(map_name)
+            continue
+        if mb is not None:
+            # binding registered under the optimized name too; the original-name
+            # iteration already handled it.
             continue
 
         try:
@@ -1165,9 +1396,15 @@ def run_verification_rust_only(vctx, rust_filepath, entry_sym, max_steps=50000, 
 
     unifier = Z3VariableUnifier()
     ctx_constraints = vctx.shared_vars.get('ctx_constraints', [])
-    return verify_equivalence_ite(vctx.c_program_data, r_program_data, unifier,
-                                  ctx_constraints=ctx_constraints, skip_r0=skip_r0,
-                                  witness=vctx.witness)
+    try:
+        return verify_equivalence_ite(vctx.c_program_data, r_program_data, unifier,
+                                      ctx_constraints=ctx_constraints, skip_r0=skip_r0,
+                                      witness=vctx.witness)
+    except _WitnessError as exc:
+        print(f"[!] witness: {exc}")
+        return VerificationResult(
+            equivalent=False, result_type="witness_error", counter_example=str(exc)
+        )
 
 def run_verification(
     c_filepath,

@@ -26,6 +26,7 @@ from witness_spec import (
     WitnessError,
     _bits_of_type,
     build_assumption_constraints,
+    build_binding_plan,
     build_observation_selection,
     eval_expr,
     find_binding,
@@ -281,6 +282,45 @@ def t_relation_is_plain_equal():
     assert find_binding(w, "nope") is None
 
 
+def t_build_binding_plan():
+    w = load_witness(EXAMPLE)
+    plan = build_binding_plan(w)
+    assert plan is not None
+    # context -> identity, queue_id -> unsupported scalar, queue_packets -> map
+    assert "context" in plan.identity
+    assert any(name == "queue_id" for name, _ in plan.unsupported)
+    assert "queue_packets" in plan.maps
+    mb = plan.maps["queue_packets"]
+    assert mb.original_key == "k"
+    assert mb.optimized_key == {"truncate": {"value": "k", "width": 16}}
+    assert mb.value_is_identity() is True
+    assert build_binding_plan(None) is None
+
+
+def t_eval_witness_expr_z3():
+    import z3
+    from verify_equivalence import eval_witness_expr_z3
+
+    k = z3.BitVec("k", 32)
+    env = {"k": k}
+    def resolve(tok):
+        return env[tok]
+
+    # identity
+    assert z3.simplify(eval_witness_expr_z3("k", resolve) == k)
+    # truncate a literal
+    v = eval_witness_expr_z3({"truncate": {"value": {"value": 0x1234, "type": "u32"}, "width": 8}}, resolve)
+    assert v.size() == 8
+    assert z3.simplify(v).as_long() == 0x34
+    # truncate a bound var, then it is k[7:0]
+    tk = eval_witness_expr_z3({"truncate": {"value": "k", "width": 8}}, resolve)
+    assert tk.size() == 8
+    assert z3.eq(z3.simplify(tk), z3.simplify(z3.Extract(7, 0, k)))
+    # comparison returns a Bool
+    b = eval_witness_expr_z3({"unsigned_le": {"left": "k", "right": {"value": 10, "type": "u32"}}}, resolve)
+    assert z3.is_bool(b)
+
+
 def t_bits_of_type():
     assert _bits_of_type("u8") == 8
     assert _bits_of_type("u16") == 16
@@ -364,6 +404,8 @@ def main():
         ("observation_target classification", t_observation_target),
         ("build_observation_selection", t_build_observation_selection),
         ("relation_is_plain_equal / find_binding", t_relation_is_plain_equal),
+        ("build_binding_plan classification", t_build_binding_plan),
+        ("eval_witness_expr_z3", t_eval_witness_expr_z3),
         ("_bits_of_type table", t_bits_of_type),
     ]
     for name, fn in tests:

@@ -1,0 +1,22 @@
+{
+  "witness": {
+    "version": "0.1",
+    "name": "udpdrops_key_lossy",
+    "bindings": [
+      {
+        "name": "counts",
+        "original":  { "object": "udp_fail_queue_rcv_skbs_total", "type": "map<u16, u64>" },
+        "optimized": { "object": "udp_fail_queue_rcv_skbs_total", "type": "map<u16, u64>" },
+        "relation": {
+          "map_correspondence": {
+            "original_key": "k",
+            "optimized_key": { "truncate": { "value": "k", "width": 8 } },
+            "value_relation": { "equal": true }
+          }
+        }
+      }
+    ],
+    "assumptions": [],
+    "observations": []
+  }
+}

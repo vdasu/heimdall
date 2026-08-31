@@ -277,10 +277,13 @@ def _bits_of_type(tname: str) -> int:
 class ExprContext:
     """Resolves witness path references against a built `shared_vars` dict."""
 
-    def __init__(self, shared_vars: dict, bindings=None):
+    def __init__(self, shared_vars: dict, bindings=None, bound=None):
         self.shared_vars = shared_vars or {}
         self.ctx_fields = self.shared_vars.get("ctx_fields", {}) or {}
         self.bindings = {b.name: b for b in (bindings or [])}
+        # bound: {name -> AST} for free variables introduced by a binding
+        # expression (e.g. the `original_key` symbol of a map_correspondence).
+        self.bound = dict(bound or {})
 
     def field_names(self):
         return sorted(self.ctx_fields.keys())
@@ -289,6 +292,9 @@ class ExprContext:
         parts = [p for p in str(path).split(".") if p != ""]
         if not parts:
             raise WitnessError("empty path reference")
+
+        if len(parts) == 1 and parts[0] in self.bound:
+            return self.bound[parts[0]]
 
         side = "original"
         if parts[0] in ("original", "optimized"):
@@ -601,3 +607,84 @@ def relation_is_plain_equal(relation, witness) -> bool:
             b = find_binding(witness, ub)
             return b is not None and _binding_is_identity_equal(b)
     return False
+
+
+# --------------------------------------------------------------------------- #
+# Stage-3 data model: binding transforms
+# --------------------------------------------------------------------------- #
+@dataclass
+class MapBinding:
+    """A `map_correspondence` binding: original map entry at key `k`
+    corresponds to the optimized map entry at key `optimized_key(k)`, with
+    values related by `value_relation`.
+    """
+    name: str
+    original_object: str
+    optimized_object: str
+    original_key: str                 # the free-variable name (e.g. "k")
+    optimized_key: Any                # expression tree over `original_key`
+    value_relation: Any               # True / "equal" / {"equal": true|{left,right}}
+
+    def value_is_identity(self) -> bool:
+        vr = self.value_relation
+        return (
+            vr in (None, True, "equal", "eq")
+            or (isinstance(vr, dict) and vr.get("equal") is True)
+        )
+
+
+@dataclass
+class BindingPlan:
+    """Classification of a witness's bindings for the equivalence engine."""
+    maps: dict = field(default_factory=dict)          # object name -> MapBinding
+    identity: list = field(default_factory=list)      # names asserting plain equality
+    unsupported: list = field(default_factory=list)   # (name, reason) — logged, not applied
+
+    def is_empty(self) -> bool:
+        return not self.maps and not self.unsupported
+
+
+def build_binding_plan(witness) -> Optional[BindingPlan]:
+    """Classify each binding into: a map correspondence the engine applies, a
+    plain-equality identity (the engine's default — nothing to do), or an
+    unsupported transform (logged with a reason, compared as strict equality).
+    Returns None when there is no witness / no bindings.
+    """
+    bindings = list(getattr(witness, "bindings", None) or []) if witness is not None else []
+    if not bindings:
+        return None
+    plan = BindingPlan()
+    for b in bindings:
+        rel = b.relation or {}
+        mc = rel.get("map_correspondence")
+        if isinstance(mc, dict):
+            if "original_key" not in mc or "optimized_key" not in mc:
+                raise WitnessError(
+                    f"binding {b.name}: map_correspondence needs "
+                    f"'original_key' and 'optimized_key'"
+                )
+            orig_obj = (b.original or {}).get("object") or b.name
+            opt_obj = (b.optimized or {}).get("object") or orig_obj
+            mb = MapBinding(
+                name=b.name,
+                original_object=orig_obj,
+                optimized_object=opt_obj,
+                original_key=str(mc["original_key"]),
+                optimized_key=mc["optimized_key"],
+                value_relation=mc.get("value_relation", True),
+            )
+            plan.maps[orig_obj] = mb
+            if opt_obj != orig_obj:
+                plan.maps[opt_obj] = mb
+            continue
+        if rel.get("equal") is True or rel == {} or rel is None:
+            plan.identity.append(b.name)
+            continue
+        if "equal" in rel and isinstance(rel["equal"], dict):
+            plan.unsupported.append(
+                (b.name, "scalar equal:{left,right} transform is not applied yet; "
+                         "objects are still compared as strict equality")
+            )
+            continue
+        plan.unsupported.append((b.name, f"unrecognised relation {sorted(rel)}"))
+    return plan

@@ -99,13 +99,18 @@ example.
 - `observations`: when non-empty, the proof compares **only** the named outputs
   (`original.return`, or a map / `.data` global by name); the return value and
   any unlisted map/global are left unconstrained. An observation naming an
-  output that is not in the formulas fails with `result_type: witness_error`. A
-  `relation` other than plain equality (e.g. `use_binding` with a transform)
-  currently still compares as strict equality, with a warning — transforms land
-  in stage 3.
-- `bindings`: `map_correspondence` entries supply map specs so the positional
-  `<map:type>` args can be omitted; their transforms are not applied yet
-  (stage 3).
+  output that is not in the formulas fails with `result_type: witness_error`.
+- `bindings`:
+  - `map_correspondence` — the map is compared under the key transform: for
+    every original key `k`, C's entry at `k` is matched against Rust's entry at
+    `optimized_key(k)`, with values related by `value_relation` (`equal: true`,
+    or `equal: {left, right}` over `original.value` / `optimized.value`). C and
+    Rust key widths may differ. The binding also supplies the map spec, so the
+    positional `<map:type>` args can be omitted.
+  - `equal: true` — identity; this is already the default (same-named inputs are
+    unified), nothing to do.
+  - `equal: {left, right}` on a scalar object — **not applied yet**; logged and
+    the objects are still compared as strict equality.
 
 ## Step 5: Save Results
 
